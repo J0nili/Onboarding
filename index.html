@@ -305,7 +305,8 @@ table.grid td.anchor-cell .cell-val{opacity:1}
     <!-- ══════════ FINAL (EDITABLE SPREADSHEET) ══════════ -->
     <div id="final" class="tab-panel">
       <div class="toolbar">
-        <button class="btn btn-ghost" onclick="undoFinal()" id="btnUndo" title="Ctrl+Z" disabled>&#8630; Deshacer</button>
+        <button class="btn btn-outline" onclick="downloadOnboarding()">&#8595; Exportar Onboarding</button>
+        <div class="tb-sep"></div>
         <button class="btn btn-ghost" onclick="redoFinal()" id="btnRedo" title="Ctrl+Y" disabled>&#8631; Rehacer</button>
         <div class="tb-sep"></div>
         <button class="btn btn-outline" onclick="addRow()">+ Fila</button>
@@ -349,18 +350,13 @@ table.grid td.anchor-cell .cell-val{opacity:1}
       <div class="kpi-grid" id="kpiGrid"></div>
       <div class="charts-grid">
         <div class="chart-card">
-          <div class="cc-hdr"><span class="cc-title">Sede</span><span class="cc-type">Barras</span></div>
-          <div class="cw"><canvas id="sedeChart"></canvas></div>
+          <div class="cc-hdr"><span class="cc-title">Empresa</span><span class="cc-type">Barras horiz.</span></div>
+          <div class="cw tall"><canvas id="empresaChart"></canvas></div>
           <div class="cc-hint">Clic para filtrar</div>
         </div>
         <div class="chart-card">
-          <div class="cc-hdr"><span class="cc-title">Estado</span><span class="cc-type">Pastel</span></div>
-          <div class="cw"><canvas id="estadoChart"></canvas></div>
-          <div class="cc-hint">Clic para filtrar</div>
-        </div>
-        <div class="chart-card wide">
-          <div class="cc-hdr"><span class="cc-title">Compa&ntilde;&iacute;a / Empresa</span><span class="cc-type">Barras horizontales</span></div>
-          <div class="cw xtall"><canvas id="companyChart"></canvas></div>
+          <div class="cc-hdr"><span class="cc-title">Sede</span><span class="cc-type">Barras</span></div>
+          <div class="cw"><canvas id="sedeChart"></canvas></div>
           <div class="cc-hint">Clic para filtrar</div>
         </div>
         <div class="chart-card">
@@ -369,8 +365,13 @@ table.grid td.anchor-cell .cell-val{opacity:1}
           <div class="cc-hint">Clic para filtrar</div>
         </div>
         <div class="chart-card">
-          <div class="cc-hdr"><span class="cc-title">Asignado A</span><span class="cc-type">Puntos</span></div>
-          <div class="cw"><canvas id="asigChart"></canvas></div>
+          <div class="cc-hdr"><span class="cc-title">Estado</span><span class="cc-type">Pastel</span></div>
+          <div class="cw"><canvas id="estadoChart"></canvas></div>
+          <div class="cc-hint">Clic para filtrar</div>
+        </div>
+        <div class="chart-card wide">
+          <div class="cc-hdr"><span class="cc-title">T&eacute;cnico</span><span class="cc-type">Barras horiz.</span></div>
+          <div class="cw tall"><canvas id="tecnicoChart"></canvas></div>
           <div class="cc-hint">Clic para filtrar</div>
         </div>
       </div>
@@ -581,8 +582,10 @@ function updateSelHintFS(){
 }
 
 function updateUndoBtns(){
-  document.getElementById('btnUndo').disabled=undoStack.length===0;
-  document.getElementById('btnRedo').disabled=redoStack.length===0;
+  const u=document.getElementById('btnUndo');
+  const r=document.getElementById('btnRedo');
+  if(u) u.disabled=undoStack.length===0;
+  if(r) r.disabled=redoStack.length===0;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -791,6 +794,7 @@ function initMouseFS(){
     if(FS.editing&&r===FS.ar&&c===FS.ac){document.getElementById('finalEditor').focus();return;}
     commitFS();FS.ar=r;FS.ac=c;FS.r1=r;FS.c1=c;FS.r2=r;FS.c2=c;FS.drag=true;
     repaintSelFS();e.preventDefault();
+    wrap.focus();
   });
   wrap.addEventListener('mousemove',e=>{
     if(!FS.drag) return;
@@ -1038,21 +1042,32 @@ function downloadExcel(){
   showToast('Archivo exportado','ok');
 }
 
-// ════════════════════════════════════════════════════════════
-// DASHBOARD  (from Final, cols: Sede, Empresa, Asignado a, Tipo, Estado)
+function downloadOnboarding(){
+  if(!finalData.rows.length){showToast('No hay datos en Onboarding',true);return;}
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([FINAL_HEADERS,...finalData.rows]),'Onboarding');
+  XLSX.writeFile(wb,'Onboarding_Export.xlsx');
+  showToast('Onboarding exportado','ok');
+}
+
+
 // ════════════════════════════════════════════════════════════
 let chartInstances={}, activeFilters={};
 
 // Final column indices for dashboard dimensions
 const DASH_CI={
-  sede:     FINAL_HEADERS.indexOf('Sede'),
   empresa:  FINAL_HEADERS.indexOf('Empresa'),
-  asignado: FINAL_HEADERS.indexOf('Asignado a'),
+  sede:     FINAL_HEADERS.indexOf('Sede'),
   tipo:     FINAL_HEADERS.indexOf('Tipo'),
-  estado:   FINAL_HEADERS.indexOf('Estado')
+  estado:   FINAL_HEADERS.indexOf('Estado'),
+  tecnico:  FINAL_HEADERS.indexOf('Tecnico')
 };
 
-function addFilter(dim,val){activeFilters[dim]=val;renderFilters();updateDashboard();}
+function addFilter(dim,val){
+  if(activeFilters[dim]===val) delete activeFilters[dim];
+  else activeFilters[dim]=val;
+  renderFilters();updateDashboard();
+}
 function removeFilter(dim){delete activeFilters[dim];renderFilters();updateDashboard();}
 function clearAllFilters(){activeFilters={};renderFilters();updateDashboard();}
 
@@ -1099,27 +1114,26 @@ function updateDashboard(){
     return;
   }
 
-  const sedes    =countBy(rows,DASH_CI.sede);
   const empresas =countBy(rows,DASH_CI.empresa);
-  const asignados=countBy(rows,DASH_CI.asignado);
+  const sedes    =countBy(rows,DASH_CI.sede);
   const tipos    =countBy(rows,DASH_CI.tipo);
   const estados  =countBy(rows,DASH_CI.estado);
+  const tecnicos =countBy(rows,DASH_CI.tecnico);
 
-  // KPIs
   document.getElementById('kpiGrid').innerHTML=[
-    ['Registros',rows.length,rows.length<all.length?`de ${all.length} total`:''],
-    ['Sedes',    Object.keys(sedes).length,''],
-    ['Empresas', Object.keys(empresas).length,''],
-    ['Estados',  Object.keys(estados).length,'']
+    ['Registros', rows.length, rows.length<all.length?`de ${all.length} total`:''],
+    ['Empresas',  Object.keys(empresas).length,''],
+    ['Sedes',     Object.keys(sedes).length,''],
+    ['Técnicos',  Object.keys(tecnicos).length,'']
   ].map(([l,n,s])=>`<div class="kpi-card"><div class="kpi-lbl">${l}</div><div class="kpi-num">${n}</div>${s?`<div class="kpi-sub">${s}</div>`:''}</div>`).join('');
 
   mkPal=n=>Array.from({length:n},(_,i)=>PAL[i%PAL.length]);
 
+  mkBar('empresaChart', Object.keys(empresas), Object.values(empresas), mkPal(Object.keys(empresas).length), true,  l=>addFilter('empresa',l));
   mkBar('sedeChart',    Object.keys(sedes),    Object.values(sedes),    mkPal(Object.keys(sedes).length),    false, l=>addFilter('sede',l));
-  mkPie('estadoChart',  Object.keys(estados),  Object.values(estados),  mkPal(Object.keys(estados).length),  'pie', l=>addFilter('estado',l));
-  mkBar('companyChart', Object.keys(empresas), Object.values(empresas), mkPal(Object.keys(empresas).length), true,  l=>addFilter('empresa',l));
-  mkPie('tipoChart',    Object.keys(tipos),    Object.values(tipos),    mkPal(Object.keys(tipos).length),    'doughnut',l=>addFilter('tipo',l));
-  mkBubble('asigChart', asignados, l=>addFilter('asignado',l));
+  mkPie('tipoChart',    Object.keys(tipos),    Object.values(tipos),    mkPal(Object.keys(tipos).length),    'doughnut', l=>addFilter('tipo',l));
+  mkPie('estadoChart',  Object.keys(estados),  Object.values(estados),  mkPal(Object.keys(estados).length),  'pie',      l=>addFilter('estado',l));
+  mkBar('tecnicoChart', Object.keys(tecnicos), Object.values(tecnicos), mkPal(Object.keys(tecnicos).length), true,  l=>addFilter('tecnico',l));
 }
 
 // Chart factory — bar
